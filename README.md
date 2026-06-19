@@ -23,20 +23,20 @@ From the repo root:
 bash scripts/bootstrap.sh
 ```
 
-This is idempotent — safe to re-run. It will:
+This is idempotent — safe to re-run. It installs a **self-contained copy**
+under `~/.local/share/pii-redactor/` and a launcher at
+`~/.local/bin/pii-redact-clipboard`. It will:
 
 1. Verify `uv` is installed
-2. Create `.venv`
-3. Install the package in editable mode
+2. Create a venv at `~/.local/share/pii-redactor/.venv`
+3. Install the package **non-editable** (copy, not symlink) into that venv
 4. Download + cache the GLiNER model (~120 MB, paid once here, not on first hotkey press)
+5. Write `~/.local/bin/pii-redact-clipboard` (the launcher the Shortcut calls)
 
-If you prefer to run the steps manually:
-
-```bash
-uv venv
-uv pip install -e .
-uv run python -c "from redactor import model_redactor; model_redactor._load_model()"
-```
+The repo clone is **no longer needed at runtime** — the launcher points at
+the installed venv, not the clone. This is why it works even when the clone
+lives under Desktop/Documents/Downloads (which are TCC-blocked for external
+Shortcut triggers; see [Troubleshooting](#troubleshooting)).
 
 ## Use via Apple Shortcuts (recommended)
 
@@ -57,8 +57,12 @@ open "dist/Redact PII.shortcut"
 ```
 
 Confirm in the dialog. The Shortcut is a single "Run Shell Script" action
-that calls `scripts/redact_via_shortcut.sh`, which in turn invokes the
-existing CLI. No redaction logic lives inside the Shortcut.
+that calls `~/.local/bin/pii-redact-clipboard`, which invokes the installed
+CLI. No redaction logic lives inside the Shortcut.
+
+If you previously imported a version that errors or shows **Unknown Action**,
+delete it in Shortcuts.app first, then re-run `build_shortcut.py` and import
+again.
 
 ### 3. Assign a global hotkey
 
@@ -83,11 +87,14 @@ prewarm only saves the **download** — the per-invocation load cost remains.
 ## Use via CLI (fallback)
 
 ```bash
-uv run redact-clipboard run
+~/.local/bin/pii-redact-clipboard
 ```
 
 Reads the clipboard, redacts in place, prints a one-line summary. Exits 0 on
 empty clipboard or no-PII; exits 1 only on clipboard write failure.
+
+(For development against the repo clone, you can still run
+`uv run redact-clipboard run` from the repo root after `uv venv && uv pip install -e .`.)
 
 ## Use via Raycast (optional alternative trigger)
 
@@ -215,11 +222,38 @@ src/redactor/
   logging_setup.py    # loguru console + rotating file
   main.py             # Typer CLI: read -> redact -> write
 scripts/
-  bootstrap.sh            # one-paste idempotent setup
-  redact_via_shortcut.sh  # absolute-path entrypoint for Shortcuts.app
+  bootstrap.sh            # one-paste idempotent setup (installs to ~/.local)
   build_shortcut.py       # generates + signs dist/Redact PII.shortcut
+                           # (points at ~/.local/bin/pii-redact-clipboard)
   redact_clipboard.py     # Raycast Script Command (optional trigger)
 ```
+
+## Troubleshooting
+
+### Shortcut works in Shortcuts.app but fails via hotkey/Quick Action with "Operation not permitted"
+
+This is macOS TCC, not a bug in the redactor. External Shortcut triggers
+(keyboard hotkey, Services menu, Quick Action) run inside a **sandboxed**
+`BackgroundShortcutRunner` XPC that inherits the permissions of the
+triggering app, not Shortcuts.app. On macOS 14+ that sandbox is blocked from
+executing or reading scripts under **Desktop, Documents, and Downloads** —
+even when Shortcuts.app has Full Disk Access.
+
+Fix (already baked into this repo's setup): `scripts/bootstrap.sh` installs
+the runnable bits under `~/.local/` (not TCC-protected), and the Shortcut
+calls a fixed launcher there. The repo clone can live anywhere.
+
+If you are still hitting it after a fresh setup, check:
+
+- `~/.local/bin/pii-redact-clipboard` exists and is executable
+- The Shortcut's Run Shell Script calls `bash "$HOME/.local/bin/pii-redact-clipboard"`
+  (or an expanded absolute path to it)
+- Shortcuts.app is in **System Settings → General → Login Items** (so the
+  hotkey fires reliably without the app in the foreground)
+
+References:
+- [Operation Not Permitted: Spotlight, Apple Shortcuts, and Shell Script](https://frkd.dev/tech/apple-shortcuts-shell-operation-not-permitted/)
+- [Shortcuts Shell Script cannot access User's folders when executed via Quick Action](https://discussions.apple.com/thread/255170532)
 
 ## License
 

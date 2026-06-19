@@ -4,8 +4,13 @@
 Why this exists
 ---------------
 The Apple Shortcut is intentionally a thin launcher: a single "Run Shell
-Script" action that calls `scripts/redact_via_shortcut.sh`. No redaction
-logic, no model paths, no Python internals leak into the Shortcut.
+Script" action that calls `~/.local/bin/pii-redact-clipboard`, which is
+installed by `scripts/bootstrap.sh`. No redaction logic, no model paths, no
+Python internals leak into the Shortcut.
+
+The launcher lives under `~/.local` (not TCC-protected) so external Shortcut
+triggers (hotkey, BackgroundShortcutRunner) can execute it even if the repo
+clone lives under Desktop/Documents/Downloads.
 
 Why a generator (and not a committed `.shortcut`)
 -------------------------------------------------
@@ -38,48 +43,64 @@ import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WRAPPER = REPO_ROOT / "scripts" / "redact_via_shortcut.sh"
 OUT_DIR = REPO_ROOT / "dist"
 SHORTCUT_NAME = "Redact PII"
 OUT_FILE = OUT_DIR / f"{SHORTCUT_NAME}.shortcut"
 
+# The launcher installed by bootstrap.sh at a fixed, non-TCC-protected path.
+# External Shortcut triggers (hotkey, BackgroundShortcutRunner) cannot execute
+# scripts under Desktop/Documents/Downloads; ~ is safe.
+LAUNCHER = Path.home() / ".local" / "bin" / "pii-redact-clipboard"
+
+# Matches shortcutpy's emitted workflow envelope (verified against macOS Shortcuts).
+_CLIENT_VERSION = "4033.0.4.3"
+_MIN_CLIENT_VERSION = 900
+
+
+def _uid() -> str:
+    return str(uuid.uuid4()).upper()
+
 
 def build_workflow() -> dict:
     """Build the WFWorkflow plist for a single Run Shell Script action."""
-    if not WRAPPER.exists():
-        sys.exit(f"ERROR: wrapper not found at {WRAPPER}")
-    wrapper_abs = str(WRAPPER)
+    if not LAUNCHER.exists():
+        sys.exit(
+            f"ERROR: launcher not found at {LAUNCHER}\n"
+            "Run scripts/bootstrap.sh first to install it."
+        )
+    launcher_abs = str(LAUNCHER)
 
-    # The Run Shell Script action. Identifier and parameter keys come from
-    # Apple's WFWorkflowActions format (is.workflow.actions.runshell).
-    # We pass an absolute path to the wrapper so the Shortcut doesn't depend
-    # on cwd. Shell = /bin/sh (Shortcuts default), input = none.
+    # Local "Run Shell Script" is is.workflow.actions.runshellscript.
+    # (is.workflow.actions.runsshscript is a different action: SSH to a remote host.)
+    # is.workflow.actions.runshell does not exist and imports as "Unknown Action".
+    action_uuid = _uid()
     return {
-        "WFWorkflowMinimumClientVersion": 900,
-        "WFWorkflowMinimumClientVersionString": "900",
+        "WFQuickActionSurfaces": [],
+        "WFWorkflowClientVersion": _CLIENT_VERSION,
+        "WFWorkflowHasOutputFallback": False,
+        "WFWorkflowHasShortcutInputVariables": False,
+        "WFWorkflowImportQuestions": [],
+        "WFWorkflowMinimumClientVersion": _MIN_CLIENT_VERSION,
+        "WFWorkflowMinimumClientVersionString": str(_MIN_CLIENT_VERSION),
+        "WFWorkflowName": SHORTCUT_NAME,
+        "WFWorkflowNoInputBehavior": {},
+        "WFWorkflowOutputContentItemClasses": [],
+        "WFWorkflowTypes": [],
+        "WFWorkflowInputContentItemClasses": [],
         "WFWorkflowIcon": {
-            "WFWorkflowIconGlyphNumber": 59511,  # shield-ish
+            "WFWorkflowIconGlyphNumber": 61511,  # magic wand / shield-ish
             "WFWorkflowIconStartColor": 4282601983,  # blue
         },
-        "WFWorkflowImportQuestions": [],
-        "WFWorkflowTypes": ["NCWidget", "WatchKit"],
-        "WFWorkflowInputContentItemClasses": [],
         "WFWorkflowActions": [
             {
-                "WFWorkflowActionIdentifier": "is.workflow.actions.runshell",
+                "WFWorkflowActionIdentifier": "is.workflow.actions.runshellscript",
                 "WFWorkflowActionParameters": {
-                    "Script": f'bash "{wrapper_abs}"',
-                    "UseAsArgument": False,
-                    "Input": {
-                        "Value": {
-                            "AttachmentListType": "Output",
-                            "OutputUUID": str(uuid.uuid4()),
-                            "Type": "Attachment",
-                        },
-                        "WFSerializationType": "WFTextTokenStringAttachment",
-                    },
-                    "Shell": "/bin/sh",
-                    "CustomOutputName": "Redacted",
+                    "UUID": action_uuid,
+                    "Script": f'bash "{launcher_abs}"',
+                    "Shell": "/bin/bash",
+                    # Clipboard is read inside the Python CLI; don't pass Shortcut input.
+                    "InputMode": "don't pass",
+                    "CustomOutputName": "Shell Script Result",
                 },
             }
         ],
