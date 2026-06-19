@@ -15,79 +15,70 @@ Two equally supported ways to trigger it:
 - [`uv`](https://docs.astral.sh/getting-started/installation/) installed
 - `pbpaste` / `pbcopy` (built into macOS)
 
-## Setup (one paste)
+## Setup
 
-From the repo root:
+```bash
+make install
+```
+
+That's it. One command does everything:
+1. Verifies `uv` is installed, creates `.venv`, installs the package
+2. Downloads + caches the GLiNER model (~120 MB, paid once here)
+3. Builds the signed `dist/Redact PII.shortcut` for your macOS version
+4. Opens it for import and opens Login Items settings
+
+Two clicks you must do yourself (macOS security gates — not scriptable):
+- Click **Add** in the Shortcuts import dialog
+- Add **Shortcuts.app** to the Login Items list that opens
+
+Then assign a hotkey in Shortcuts.app: open **Redact PII** → info (i) icon →
+**Add Keyboard Shortcut** → press a combo (e.g. `⌘⇧R`).
+
+After that: Cmd+A, Cmd+C, press hotkey, paste. Done.
+
+<details>
+<summary>Manual steps (for power users or if make install fails)</summary>
 
 ```bash
 bash scripts/bootstrap.sh
-```
-
-This is idempotent — safe to re-run. It will:
-
-1. Verify `uv` is installed
-2. Create `.venv`
-3. Install the package in editable mode
-4. Download + cache the GLiNER model (~120 MB, paid once here, not on first hotkey press)
-
-If you prefer to run the steps manually:
-
-```bash
-uv venv
-uv pip install -e .
-uv run python -c "from redactor import model_redactor; model_redactor._load_model()"
-```
-
-## Use via Apple Shortcuts (recommended)
-
-### 1. Build the Shortcut (once)
-
-```bash
 uv run python scripts/build_shortcut.py
-```
-
-This writes a signed `dist/Redact PII.shortcut`. (The file is generated on
-your machine rather than committed because the `.shortcut` plist schema has
-shifted across macOS versions; building locally keeps it correct for your OS.)
-
-### 2. Import it
-
-```bash
 open "dist/Redact PII.shortcut"
 ```
 
-Confirm in the dialog. The Shortcut is a single "Run Shell Script" action
-that calls `scripts/redact_via_shortcut.sh`, which in turn invokes the
-existing CLI. No redaction logic lives inside the Shortcut.
+Then in Shortcuts.app: double-click **Redact PII** → info (i) icon →
+**Add Keyboard Shortcut**. Add Shortcuts.app to **System Settings → General →
+Login Items**.
 
-### 3. Assign a global hotkey
-
-1. Open **Shortcuts.app**
-2. Double-click **Redact PII**
-3. Click the info (i) icon → **Add Keyboard Shortcut** → press a combo (e.g. `⌘⇧R`)
-4. Add **Shortcuts.app** to **System Settings → General → Login Items**
-   so the hotkey works without manually launching the app
-
-### 4. First use
-
-Copy any text, press the hotkey, paste back. PII is replaced with `[EMAIL]`,
-`[PHONE]`, `[PAN]`, `[PERSON]`, etc.
+</details>
 
 ### Cold-start latency (honest note)
 
 Each Shortcut run is a **fresh process**, so the GLiNER model (~120 MB) loads
-on every invocation. Cold start is ~8–9 s; warm in-process calls would be
-sub-second but require a daemon, which is explicitly out of scope. Bootstrap
-prewarm only saves the **download** — the per-invocation load cost remains.
+on every invocation. Cold start is ~8–9 s. Bootstrap prewarm only saves the
+**download** — the per-invocation load cost remains.
 
-## Use via CLI (fallback)
+### Rebuild shortcut (after a macOS upgrade)
+
+```bash
+make shortcut
+```
+
+## Use via CLI
+
+**Clipboard mode** — reads clipboard, redacts in place:
 
 ```bash
 uv run redact-clipboard run
 ```
 
-Reads the clipboard, redacts in place, prints a one-line summary. Exits 0 on
-empty clipboard or no-PII; exits 1 only on clipboard write failure.
+**Pipe mode** — reads stdin, writes redacted text to stdout:
+
+```bash
+echo "Call John at 9876543210" | uv run redact-clipboard text
+cat report.txt | uv run redact-clipboard text > report_redacted.txt
+```
+
+Exits 0 on empty input or no PII; exits 1 only on clipboard write failure (run mode).
 
 ## Use via Raycast (optional alternative trigger)
 
