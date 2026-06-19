@@ -54,6 +54,18 @@ def run() -> None:
 
 
 @app.command()
+def text() -> None:
+    """Read text from stdin, redact PII, write redacted text to stdout."""
+    import sys
+    run_id = setup_logging()
+    original = sys.stdin.read()
+    if not original.strip():
+        raise typer.Exit(code=0)
+    result = pipeline_mod.redact(original, run_id)
+    typer.echo(result.text, nl=False)
+
+
+@app.command()
 def version() -> None:
     """Print version."""
     from . import __version__
