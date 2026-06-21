@@ -30,7 +30,11 @@ def run() -> None:
 
     logger.info("run_id={} input_len={}", run_id, len(original))
 
-    result = pipeline_mod.redact(original, run_id)
+    try:
+        result = pipeline_mod.redact(original, run_id)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1)
 
     total = sum(result.regex_counts.values()) + sum(result.model_counts.values())
     if total == 0:
@@ -61,7 +65,11 @@ def text() -> None:
     original = sys.stdin.read()
     if not original.strip():
         raise typer.Exit(code=0)
-    result = pipeline_mod.redact(original, run_id)
+    try:
+        result = pipeline_mod.redact(original, run_id)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1)
     typer.echo(result.text, nl=False)
 
 

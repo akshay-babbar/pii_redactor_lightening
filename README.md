@@ -92,6 +92,35 @@ Exits 0 on empty input or no PII; exits 1 only on clipboard write failure (run m
 (For development against the repo clone, you can still run
 `uv run redact-clipboard run` from the repo root after `uv venv && uv pip install -e .`.)
 
+## Customization
+
+The app reads a small set of optional environment variables:
+
+- `PII_REDACTOR_MODEL_ID` — override the default GLiNER checkpoint
+  (`urchade/gliner_multi_pii-v1`).
+- `PII_REDACTOR_MODEL_THRESHOLD` — confidence threshold for model detections;
+  must be a float between `0.0` and `1.0`.
+- `PII_REDACTOR_DISABLE_MODEL` — set to `1`, `true`, `yes`, or `on` to skip
+  GLiNER and run regex-only redaction.
+
+Example:
+
+```bash
+PII_REDACTOR_DISABLE_MODEL=1 uv run redact-clipboard text < note.txt
+```
+
+`.env.example` shows the supported keys for local convenience, but the app does
+not auto-load `.env` files. For Hugging Face cache placement, use the official
+`HF_HOME` / `HF_HUB_CACHE` environment variables.
+
+## PR Review Prep
+
+This repo is prepared for on-demand Bugbot PR review, but the actual
+Cursor/Bugbot GitHub integration and model selection live outside the repo.
+
+If your org or repo has the Cursor/Bugbot GitHub app installed, prefer its
+native on-demand PR review trigger rather than repo-local workflow glue.
+
 ## Use via Raycast (optional alternative trigger)
 
 If you already use Raycast, `scripts/redact_clipboard.py` is a Script Command
