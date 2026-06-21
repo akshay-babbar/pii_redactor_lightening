@@ -3,14 +3,26 @@
 
 Why this exists
 ---------------
-The Apple Shortcut is intentionally a thin launcher: a single "Run Shell
-Script" action that calls `~/.local/bin/pii-redact-clipboard`, which is
-installed by `scripts/bootstrap.sh`. No redaction logic, no model paths, no
-Python internals leak into the Shortcut.
+The Apple Shortcut is intentionally a thin launcher: three actions —
+
+1. Show Notification: "Redacting PII..."     (instant, non-blocking signal)
+2. Run Shell Script:  ~/.local/bin/pii-redact-clipboard
+3. Show Notification: "Redaction complete. Redacted text is on clipboard."
+
+No redaction logic, no model paths, no Python internals leak into the
+Shortcut. The shell action calls `~/.local/bin/pii-redact-clipboard`, which
+is installed by `scripts/bootstrap.sh`.
 
 The launcher lives under `~/.local` (not TCC-protected) so external Shortcut
 triggers (hotkey, BackgroundShortcutRunner) can execute it even if the repo
 clone lives under Desktop/Documents/Downloads.
+
+Notifications are status-only: the redacted text and the original clipboard
+are never put in a notification body or in any log.
+
+Icon: green lightning bolt — matches the project name "Lightening".
+- Glyph 59764 = "Lightning Bolt" (Apple Shortcuts glyph catalog).
+- Color 4292093695 = Shortcuts preset green.
 
 Why a generator (and not a committed `.shortcut`)
 -------------------------------------------------
@@ -62,7 +74,7 @@ def _uid() -> str:
 
 
 def build_workflow() -> dict:
-    """Build the WFWorkflow plist for a single Run Shell Script action."""
+    """Build the WFWorkflow plist: notify-start → run shell → notify-complete."""
     if not LAUNCHER.exists():
         sys.exit(
             f"ERROR: launcher not found at {LAUNCHER}\n"
@@ -73,7 +85,6 @@ def build_workflow() -> dict:
     # Local "Run Shell Script" is is.workflow.actions.runshellscript.
     # (is.workflow.actions.runsshscript is a different action: SSH to a remote host.)
     # is.workflow.actions.runshell does not exist and imports as "Unknown Action".
-    action_uuid = _uid()
     return {
         "WFQuickActionSurfaces": [],
         "WFWorkflowClientVersion": _CLIENT_VERSION,
@@ -88,21 +99,41 @@ def build_workflow() -> dict:
         "WFWorkflowTypes": [],
         "WFWorkflowInputContentItemClasses": [],
         "WFWorkflowIcon": {
-            "WFWorkflowIconGlyphNumber": 61511,  # magic wand / shield-ish
-            "WFWorkflowIconStartColor": 4282601983,  # blue
+            "WFWorkflowIconGlyphNumber": 59764,  # "Lightning Bolt" glyph
+            "WFWorkflowIconStartColor": 4292093695,  # Shortcuts preset green
         },
         "WFWorkflowActions": [
+            # 1. Instant, non-blocking start signal. No clipboard text in body.
+            {
+                "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+                "WFWorkflowActionParameters": {
+                    "WFNotificationActionTitle": "Redact PII",
+                    "WFNotificationActionBody": "Redacting PII...",
+                    "WFNotificationActionSound": False,
+                },
+            },
+            # 2. The actual work. Clipboard is read inside the Python CLI;
+            #    Shortcut input is not passed, so no PII flows through Shortcut.
             {
                 "WFWorkflowActionIdentifier": "is.workflow.actions.runshellscript",
                 "WFWorkflowActionParameters": {
-                    "UUID": action_uuid,
+                    "UUID": _uid(),
                     "Script": f'bash "{launcher_abs}"',
                     "Shell": "/bin/bash",
                     # Clipboard is read inside the Python CLI; don't pass Shortcut input.
                     "InputMode": "don't pass",
                     "CustomOutputName": "Shell Script Result",
                 },
-            }
+            },
+            # 3. Completion signal. Status-only; never includes the redacted text.
+            {
+                "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+                "WFWorkflowActionParameters": {
+                    "WFNotificationActionTitle": "Redact PII",
+                    "WFNotificationActionBody": "Redaction complete. Redacted text is on clipboard.",
+                    "WFNotificationActionSound": True,
+                },
+            },
         ],
     }
 

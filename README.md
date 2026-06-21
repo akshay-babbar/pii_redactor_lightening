@@ -36,6 +36,11 @@ Then assign a hotkey in Shortcuts.app: open **Redact PII** → info (i) icon →
 
 After that: Cmd+A, Cmd+C, press hotkey, paste. Done.
 
+You'll see a **"Redacting PII..."** notification the instant the hotkey fires
+(non-blocking), then a **"Redaction complete. Redacted text is on clipboard."**
+notification when it's done. The notifications are status-only — no clipboard
+text ever appears in them.
+
 <details>
 <summary>Manual steps (for power users or if make install fails)</summary>
 
@@ -215,7 +220,9 @@ src/redactor/
 scripts/
   bootstrap.sh            # one-paste idempotent setup (installs to ~/.local)
   build_shortcut.py       # generates + signs dist/Redact PII.shortcut
-                           # (points at ~/.local/bin/pii-redact-clipboard)
+                           # (3 actions: notify "Redacting PII..." -> shell
+                           #  launcher -> notify "Redaction complete...";
+                           #  green lightning-bolt icon)
   redact_clipboard.py     # Raycast Script Command (optional trigger)
 ```
 
