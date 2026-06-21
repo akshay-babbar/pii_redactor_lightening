@@ -48,8 +48,8 @@ echo "==> [3/5] Installing package (non-editable) into venv"
 # at runtime, so clone location (Desktop/etc.) becomes irrelevant for execution.
 uv pip install --python "$INSTALL_DIR/.venv/bin/python" "$REPO_ROOT" >/dev/null
 
-echo "==> [4/5] Prewarming GLiNER model cache (~120 MB, one-time)"
-if "$INSTALL_DIR/.venv/bin/python" -c "from redactor import model_redactor; model_redactor._load_model()" 2>/dev/null; then
+echo "==> [4/5] Prewarming GLiNER2 model cache (~1 GB, one-time)"
+if "$INSTALL_DIR/.venv/bin/python" -c "from redactor import model_redactor; model_redactor._load_model(model_redactor.DEFAULT_MODEL_ID)" 2>/dev/null; then
   touch "$INSTALL_DIR/model_prewarm"
   echo "    model cached"
 else

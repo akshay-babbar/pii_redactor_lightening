@@ -23,7 +23,7 @@ make install
 
 That's it. One command does everything:
 1. Verifies `uv` is installed, creates `.venv`, installs the package
-2. Downloads + caches the GLiNER model (~120 MB, paid once here)
+2. Downloads + caches the GLiNER2 model (~1 GB, paid once here)
 3. Builds the signed `dist/Redact PII.shortcut` for your macOS version
 4. Opens it for import and opens Login Items settings
 
@@ -62,8 +62,8 @@ If the shortcut shows **Unknown Action**, delete it in Shortcuts.app first and r
 
 ### Cold-start latency (honest note)
 
-Each Shortcut run is a **fresh process**, so the GLiNER model (~120 MB) loads
-on every invocation. Cold start is ~8–9 s. Bootstrap prewarm only saves the
+Each Shortcut run is a **fresh process**, so the GLiNER2 model (~1 GB) loads
+on every invocation. Cold start is ~8–12 s. Bootstrap prewarm only saves the
 **download** — the per-invocation load cost remains.
 
 ### Rebuild shortcut (after a macOS upgrade)
@@ -96,8 +96,8 @@ Exits 0 on empty input or no PII; exits 1 only on clipboard write failure (run m
 
 The app reads a small set of optional environment variables:
 
-- `PII_REDACTOR_MODEL_ID` — override the default GLiNER checkpoint
-  (`urchade/gliner_multi_pii-v1`).
+- `PII_REDACTOR_MODEL_ID` — override the default GLiNER2 checkpoint
+  (`fastino/gliner2-privacy-filter-PII-multi`).
 - `PII_REDACTOR_MODEL_THRESHOLD` — confidence threshold for model detections;
   must be a float between `0.0` and `1.0`.
 - `PII_REDACTOR_DISABLE_MODEL` — set to `1`, `true`, `yes`, or `on` to skip
@@ -131,7 +131,7 @@ that wraps the same CLI.
 2. The command **Redact PII from Clipboard** appears in root search.
 3. Hover it → **Record Hotkey** (e.g. `⌘⇧R`).
 
-The Raycast script auto-detects `.venv/bin/python` so torch / gliner / loguru
+The Raycast script auto-detects `.venv/bin/python` so torch / gliner2 / loguru
 resolve even under Raycast's minimal `PATH`.
 
 ## Design at a glance
@@ -144,11 +144,13 @@ Two stacked layers:
    card/account-like numeric sequences, and **multi-line Indian addresses**
    (PIN-validated against the India Post registry via `bharataddress`).
 2. **One small local model** —
-   [`urchade/gliner_multi_pii-v1`](https://huggingface.co/urchade/gliner_multi_pii-v1)
-   (Apache-2.0, ~0.3B params, DeBERTa-small backbone), specialised on a 40+
-   PII taxonomy. Used only for high-confidence contextual entities that regex
-   cannot catch cleanly: `person`, `organization`, `location`, `address`,
-   `age`, `date of birth`.
+   [`fastino/gliner2-privacy-filter-PII-multi`](https://huggingface.co/fastino/gliner2-privacy-filter-PII-multi)
+   (Apache-2.0, ~0.3B params, mDeBERTa-v3-base backbone), specialised on a
+   42-label PII taxonomy across 7 languages. Used only for high-confidence
+   contextual entities that regex cannot catch cleanly: `person`,
+   `organization`, `city`, `location`, `address`, `age`, `date of birth`,
+   `passport number`, `credit card number`, `iban`, `username`,
+   `social security number`, `bank account number`.
 
 The regex pass runs first; the model pass then runs **only on the text segments
 regex did not already cover**, so placeholders are never re-masked and the model
@@ -185,13 +187,15 @@ returns 0.88+ confidence on real phrasings.
 
 ## Hardware acceleration
 
-- Apple Silicon: uses **MPS** with **fp16** weights (loaded directly via
-  `GLiNER.from_pretrained(map_location="mps", dtype="fp16")`). Halves memory
-  with no quality loss for inference.
-- Other platforms: falls back to CPU fp32 automatically.
-- **Quantization is intentionally skipped.** GLiNER's int8 path needs a
-  QAT-trained model to preserve accuracy; the chosen model is not, so int8
-  would trade accuracy for a memory win we already get from fp16.
+- Apple Silicon: uses **MPS** (loaded via
+  `GLiNER2.from_pretrained(map_location="mps")`). Empirically ~4x faster than
+  CPU on the GLiNER2 PII checkpoint after warmup.
+- Other platforms: falls back to CPU automatically.
+- **fp16 is unavailable on this checkpoint.** The model ships as
+  safetensors-only; transformers rejects the fp16 load path with a HuggingFace
+  404 for `pytorch_model.bin`. We use fp32 on both MPS and CPU.
+- **Quantization is intentionally skipped.** GLiNER int8 paths need a
+  QAT-trained model to preserve accuracy, which this model is not.
 
 ## Large clipboard handling (chunked inference)
 
@@ -209,7 +213,7 @@ Defaults (tunable in `chunking.py`):
 |---|---|---|
 | `chunk_size_chars` | 1600 | Comfortably under the model's 384-token context with margin for tokenization expansion |
 | `overlap_chars` | 200 | Recovers entities that straddle chunk boundaries |
-| `threshold` | 0.7 | Conservative; favours precision over recall |
+| `threshold` | 0.75 | Empirically tuned for gliner2-PII: 0.70 over-masks common nouns, 0.75 is the lowest value that eliminates false positives without losing true positives |
 
 This keeps peak memory flat regardless of clipboard size. **Latency scales
 roughly linearly with the number of chunks**, so a very large clipboard takes
@@ -242,7 +246,7 @@ src/redactor/
   clipboard.py        # pbpaste / pbcopy wrapper
   regex_redactor.py   # compiled-once patterns + overlap resolution
   chunking.py         # paragraph-aware chunking + span merge helpers
-  model_redactor.py   # lazy single GLiNER load, MPS+fp16, chunked inference
+  model_redactor.py   # lazy single GLiNER2 load, MPS, chunked inference
   pipeline.py         # regex -> chunked model, no double-mask
   logging_setup.py    # loguru console + rotating file
   main.py             # Typer CLI: read -> redact -> write
