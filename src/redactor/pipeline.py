@@ -40,6 +40,22 @@ def redact(text: str, run_id: str) -> PipelineResult:
         run_id, len(text), total_regex_hits, rx.counts,
     )
 
+    config = model_redactor.load_config()
+    if config.disable_model:
+        elapsed = time.perf_counter() - t0
+        logger.info(
+            "run_id={} stage=model skipped=1 reason=disabled_by_env regex_hits={} elapsed_s={:.3f}",
+            run_id, total_regex_hits, elapsed,
+        )
+        return PipelineResult(
+            text=rx.text,
+            regex_counts=rx.counts,
+            model_counts={},
+            device="disabled",
+            num_chunks=0,
+            elapsed_s=elapsed,
+        )
+
     mr = model_redactor.redact(rx.text, covered=rx.covered)
     total_model_hits = sum(mr.counts.values())
     logger.info(

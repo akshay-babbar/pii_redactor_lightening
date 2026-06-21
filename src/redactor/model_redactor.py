@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import os
 
 from loguru import logger
 
@@ -34,11 +35,11 @@ from .chunking import (
     remap_chunk_entities_to_global_offsets,
 )
 
-MODEL_ID = "urchade/gliner_multi_pii-v1"
+DEFAULT_MODEL_ID = "urchade/gliner_multi_pii-v1"
 # age and date of birth: empirically tested at 0.88-0.99 and 0.72-0.79 confidence
 # respectively on this checkpoint (age is zero-shot, DOB is in-distribution).
 LABELS = ["person", "organization", "location", "address", "age", "date of birth"]
-THRESHOLD = 0.7
+DEFAULT_THRESHOLD = 0.7
 
 # Common English words the PII model over-triggers on as person/org. Coarse guard
 # against false positives; not a precision system. Add observed offenders only.
@@ -56,6 +57,36 @@ class ModelResult:
     num_chunks: int = 0
 
 
+@dataclass(frozen=True)
+class ModelConfig:
+    model_id: str = DEFAULT_MODEL_ID
+    threshold: float = DEFAULT_THRESHOLD
+    disable_model: bool = False
+
+
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def load_config() -> ModelConfig:
+    """Load model-related configuration from environment variables."""
+    model_id = os.environ.get("PII_REDACTOR_MODEL_ID", DEFAULT_MODEL_ID).strip() or DEFAULT_MODEL_ID
+
+    threshold_raw = os.environ.get("PII_REDACTOR_MODEL_THRESHOLD")
+    threshold = DEFAULT_THRESHOLD
+    if threshold_raw is not None:
+        try:
+            threshold = float(threshold_raw)
+        except ValueError as exc:
+            raise ValueError(
+                "PII_REDACTOR_MODEL_THRESHOLD must be a float between 0.0 and 1.0"
+            ) from exc
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("PII_REDACTOR_MODEL_THRESHOLD must be between 0.0 and 1.0")
+
+    disable_model = os.environ.get("PII_REDACTOR_DISABLE_MODEL", "").strip().lower() in _TRUE_VALUES
+    return ModelConfig(model_id=model_id, threshold=threshold, disable_model=disable_model)
+
+
 def pick_device() -> str:
     """Prefer MPS on Apple Silicon; fall back to CPU."""
     try:
@@ -67,16 +98,16 @@ def pick_device() -> str:
     return "cpu"
 
 
-@lru_cache(maxsize=1)
-def _load_model():
+@lru_cache(maxsize=None)
+def _load_model(model_id: str):
     """Load GLiNER once per process. Cached to amortize across calls."""
     from gliner import GLiNER  # imported lazily so CLI --help stays fast
 
     device = pick_device()
     # fp16 on MPS is safe and halves memory. CPU keeps fp32 (fp16 on CPU is slow).
     dtype = "fp16" if device == "mps" else None
-    logger.info("loading GLiNER model={} device={} dtype={}", MODEL_ID, device, dtype)
-    model = GLiNER.from_pretrained(MODEL_ID, map_location=device, dtype=dtype)
+    logger.info("loading GLiNER model={} device={} dtype={}", model_id, device, dtype)
+    model = GLiNER.from_pretrained(model_id, map_location=device, dtype=dtype)
     model.eval()
     return model, device
 
@@ -97,6 +128,7 @@ def _uncovered_segments(text: str, covered: list[tuple[int, int]]) -> list[tuple
 def _run_model_on_chunks(
     model,
     chunks: list[Chunk],
+    threshold: float,
 ) -> list[tuple[int, int, str]]:
     """Run GLiNER on each chunk; return merged global-offset (start, end, label)."""
     raw: list[tuple[int, int, str]] = []
@@ -104,7 +136,7 @@ def _run_model_on_chunks(
         if not chunk.text.strip():
             continue
         try:
-            ents = model.predict_entities(chunk.text, LABELS, threshold=THRESHOLD)
+            ents = model.predict_entities(chunk.text, LABELS, threshold=threshold)
         except Exception as exc:  # never let the model layer kill the pipeline
             logger.error("model.predict_entities failed on chunk: {}", type(exc).__name__)
             continue
@@ -133,7 +165,8 @@ def redact(
     `covered` are character ranges already masked by the regex pass (in `text`).
     """
     covered = covered or []
-    model, device = _load_model()
+    config = load_config()
+    model, device = _load_model(config.model_id)
 
     # The model only ever sees text regex did NOT cover.
     segments = _uncovered_segments(text, covered)
@@ -156,11 +189,11 @@ def redact(
         return ModelResult(text=text, counts={}, device=device, num_chunks=0)
 
     logger.info(
-        "model_pass chunks={} chunk_size={} overlap={}",
-        len(all_chunks), chunk_size, overlap,
+        "model_pass chunks={} chunk_size={} overlap={} threshold={}",
+        len(all_chunks), chunk_size, overlap, config.threshold,
     )
 
-    abs_spans = _run_model_on_chunks(model, all_chunks)
+    abs_spans = _run_model_on_chunks(model, all_chunks, threshold=config.threshold)
     if not abs_spans:
         return ModelResult(text=text, counts={}, device=device, num_chunks=len(all_chunks))
 
