@@ -1,21 +1,21 @@
-"""Contextual model redaction layer using a single small GLiNER PII model.
+"""Contextual model redaction layer using a single small GLiNER2 PII model.
 
-- Model: urchade/gliner_multi_pii-v1 (Apache-2.0, ~0.3B params, DeBERTa-small backbone).
+- Model: fastino/gliner2-privacy-filter-PII-multi (Apache-2.0, ~0.3B params,
+  mDeBERTa-v3-base backbone). Trained on a 42-label PII taxonomy across 7
+  European languages; Romanized Indian names/cities tested empirically.
+- Library: gliner2 (successor to gliner). API is extract_entities().
 - Device: MPS on Apple Silicon, else CPU. Loaded once, lazily.
-- Precision: fp16 on MPS (cheap, no quality loss for inference); fp32 on CPU.
-- Quantization: intentionally skipped. GLiNER int8 path requires a QAT-trained
-  model to preserve accuracy, which the chosen model is not. fp16 gives us the
-  memory win without that risk.
+- Precision: fp32 on both MPS and CPU. fp16 via .half() is unavailable because
+  the model ships as safetensors-only and transformers rejects fp16 load.
 - Chunked inference: the regex-redacted text is sliced into overlapping,
   paragraph-aware chunks (see chunking.py) before being sent to the model.
   This keeps peak memory flat regardless of clipboard size.
-- Labels: person / organization / location / address / age / date of birth.
-  Empirically these out-of-perform alternative label sets on this checkpoint
-  (the suggested 'name' / 'location address' / etc. labels missed all persons
-  in A/B testing). 'age' is zero-shot but tested at 0.88+; 'date of birth' is
-  in-distribution.
-- Masking is high-confidence only (threshold 0.7) and runs only on text that the
-  regex layer did NOT already cover, so placeholders never get re-masked.
+- Labels: a subset of the model's 42 trained labels, chosen to not overlap
+  with what the regex layer already owns (email, phone, IP, secret, address).
+  Net-new coverage vs the old model: city, passport number, credit card
+  number, iban, username, social security number, bank account number.
+- Masking runs only on text the regex layer did NOT already cover, so
+  placeholders never get re-masked.
 """
 
 from __future__ import annotations
@@ -35,11 +35,30 @@ from .chunking import (
     remap_chunk_entities_to_global_offsets,
 )
 
-DEFAULT_MODEL_ID = "urchade/gliner_multi_pii-v1"
-# age and date of birth: empirically tested at 0.88-0.99 and 0.72-0.79 confidence
-# respectively on this checkpoint (age is zero-shot, DOB is in-distribution).
-LABELS = ["person", "organization", "location", "address", "age", "date of birth"]
-DEFAULT_THRESHOLD = 0.7
+DEFAULT_MODEL_ID = "fastino/gliner2-privacy-filter-PII-multi"
+# Labels chosen from the model's 42-label trained taxonomy. Email, phone, IP,
+# secret, password, api_key are intentionally omitted because the regex layer
+# already handles those deterministically. 'age' is zero-shot on this checkpoint
+# (not in the 42 trained labels) but kept for continuity with prior behaviour.
+LABELS = [
+    "person",
+    "organization",
+    "city",                    # net-new vs old model — fixes Bengaluru miss
+    "location",                # broader than city (neighborhoods, regions)
+    "address",                 # single-line; multi-line owned by regex layer
+    "age",
+    "date of birth",
+    "passport number",         # net-new
+    "credit card number",      # net-new (catches segmented cards regex misses)
+    "iban",                    # net-new
+    "username",                # net-new
+    "social security number",  # net-new
+    "bank account number",     # net-new
+]
+# 0.75 chosen empirically: at 0.70 the gliner2-PII checkpoint over-masks common
+# noun phrases (e.g. "brown fox", "lazy dog" -> PERSON). 0.75 eliminates those
+# false positives while keeping all true positives on Indian test cases.
+DEFAULT_THRESHOLD = 0.75
 
 # Common English words the PII model over-triggers on as person/org. Coarse guard
 # against false positives; not a precision system. Add observed offenders only.
@@ -100,14 +119,22 @@ def pick_device() -> str:
 
 @lru_cache(maxsize=None)
 def _load_model(model_id: str):
-    """Load GLiNER once per process. Cached to amortize across calls."""
-    from gliner import GLiNER  # imported lazily so CLI --help stays fast
+    """Load GLiNER2 once per process. Cached to amortize across calls."""
+    from gliner2 import GLiNER2  # imported lazily so CLI --help stays fast
+    # gliner2 prints a "Model Configuration" banner to stdout on instantiation
+    # with no quiet/verbose flag. Redirect stdout during load so the `text`
+    # CLI subcommand (which writes only the redacted text to stdout for piping)
+    # does not get contaminated.
+    import contextlib
+    import io
 
     device = pick_device()
-    # fp16 on MPS is safe and halves memory. CPU keeps fp32 (fp16 on CPU is slow).
-    dtype = "fp16" if device == "mps" else None
-    logger.info("loading GLiNER model={} device={} dtype={}", model_id, device, dtype)
-    model = GLiNER.from_pretrained(model_id, map_location=device, dtype=dtype)
+    # fp32 on both MPS and CPU. fp16 via .half() fails on this checkpoint
+    # because the model ships as safetensors-only; transformers rejects the
+    # fp16 load path with a HuggingFace 404 for pytorch_model.bin.
+    logger.info("loading GLiNER2 model={} device={}", model_id, device)
+    with contextlib.redirect_stdout(io.StringIO()):
+        model = GLiNER2.from_pretrained(model_id, map_location=device)
     model.eval()
     return model, device
 
@@ -130,23 +157,34 @@ def _run_model_on_chunks(
     chunks: list[Chunk],
     threshold: float,
 ) -> list[tuple[int, int, str]]:
-    """Run GLiNER on each chunk; return merged global-offset (start, end, label)."""
+    """Run GLiNER2 on each chunk; return merged global-offset (start, end, label).
+
+    GLiNER2's extract_entities returns {"entities": {label: [{text,start,end,confidence}]}}.
+    We flatten that into the list-of-dicts shape that
+    remap_chunk_entities_to_global_offsets expects (start, end, label keys).
+    """
     raw: list[tuple[int, int, str]] = []
     for chunk in chunks:
         if not chunk.text.strip():
             continue
         try:
-            ents = model.predict_entities(chunk.text, LABELS, threshold=threshold)
+            result = model.extract_entities(
+                chunk.text,
+                LABELS,
+                threshold=threshold,
+                include_spans=True,
+            )
         except Exception as exc:  # never let the model layer kill the pipeline
-            logger.error("model.predict_entities failed on chunk: {}", type(exc).__name__)
+            logger.error("model.extract_entities failed on chunk: {}", type(exc).__name__)
             continue
-        for ent in ents:
-            if ent["text"].strip().lower() in _STOPWORDS:
-                continue
-        raw.extend(remap_chunk_entities_to_global_offsets(
-            [e for e in ents if e["text"].strip().lower() not in _STOPWORDS],
-            chunk,
-        ))
+        # Flatten {label: [{start,end,text,confidence}]} -> [{start,end,label}]
+        flat: list[dict] = []
+        for label, ents in result.get("entities", {}).items():
+            for ent in ents:
+                if ent.get("text", "").strip().lower() in _STOPWORDS:
+                    continue
+                flat.append({"start": ent["start"], "end": ent["end"], "label": label})
+        raw.extend(remap_chunk_entities_to_global_offsets(flat, chunk))
     return merge_spans(raw)
 
 
