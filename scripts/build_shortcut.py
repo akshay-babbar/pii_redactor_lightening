@@ -74,13 +74,20 @@ def _uid() -> str:
 
 
 def build_workflow() -> dict:
-    """Build the WFWorkflow plist: notify-start → run shell → notify-complete."""
+    """Build the WFWorkflow plist: notify-start → run shell → notify-complete.
+
+    The completion notification's body references the shell script's stdout via
+    a WFTextTokenString + attachmentsByRange, so the CLI summary
+    ("Redacted N span(s): ...") is shown to the user. The shell action's UUID
+    is generated once and reused as the OutputUUID for that reference.
+    """
     if not LAUNCHER.exists():
         sys.exit(
             f"ERROR: launcher not found at {LAUNCHER}\n"
             "Run scripts/bootstrap.sh first to install it."
         )
     launcher_abs = str(LAUNCHER)
+    shell_action_uuid = _uid()
 
     # Local "Run Shell Script" is is.workflow.actions.runshellscript.
     # (is.workflow.actions.runsshscript is a different action: SSH to a remote host.)
@@ -117,7 +124,7 @@ def build_workflow() -> dict:
             {
                 "WFWorkflowActionIdentifier": "is.workflow.actions.runshellscript",
                 "WFWorkflowActionParameters": {
-                    "UUID": _uid(),
+                    "UUID": shell_action_uuid,
                     "Script": f'bash "{launcher_abs}"',
                     "Shell": "/bin/bash",
                     # Clipboard is read inside the Python CLI; don't pass Shortcut input.
@@ -125,12 +132,28 @@ def build_workflow() -> dict:
                     "CustomOutputName": "Shell Script Result",
                 },
             },
-            # 3. Completion signal. Status-only; never includes the redacted text.
+            # 3. Completion signal. Body references the shell script's stdout via
+            #    WFTextTokenString so the CLI summary ("Redacted N span(s): ...")
+            #    reaches the user. Status-only beyond that; never includes raw text.
+            #    The U+FFFC char in the string marks where the variable is inserted;
+            #    attachmentsByRange maps its position to the shell action's OutputUUID.
             {
                 "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
                 "WFWorkflowActionParameters": {
                     "WFNotificationActionTitle": "Redact PII",
-                    "WFNotificationActionBody": "Redaction complete. Redacted text is on clipboard.",
+                    "WFNotificationActionBody": {
+                        "Value": {
+                            "string": "Redacted: \uFFFC",
+                            "attachmentsByRange": {
+                                "{10, 1}": {
+                                    "OutputUUID": shell_action_uuid,
+                                    "OutputName": "Shell Script Result",
+                                    "Type": "ActionOutput",
+                                }
+                            },
+                        },
+                        "WFSerializationType": "WFTextTokenString",
+                    },
                     "WFNotificationActionSound": True,
                 },
             },

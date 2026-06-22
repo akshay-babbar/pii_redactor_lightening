@@ -21,12 +21,18 @@ from dataclasses import dataclass
 PATTERNS: dict[str, re.Pattern[str]] = {
     # user@host.tld; tolerate plus-addressing and subdomains
     "EMAIL": re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"),
-    # Indian mobile / landline: optional +91/0/91 prefix, 10 digits, common separators
+    # Indian mobile / landline AND US/NANP phones. Indian branches first
+    # (existing behaviour preserved), then US branches requiring a separator
+    # (. - or space) or parens so they don't collide with the unseparated
+    # Indian 10-digit branch. NANP area/exchange codes start with [2-9].
     "PHONE": re.compile(
-        r"(?:(?:\+91|91|0)[\s\-]?)?"  # prefix space only WITH a country/std code
+        r"(?:(?:\+91|91|0)[\s\-]?)?"
         r"(?:\+91[\s\-]?\d{5}[\s\-]?\d{5}|"
         r"\b[6-9]\d{9}\b|"
-        r"\b0\d{2,4}[\s\-]?\d{6,8}\b)"
+        r"\b0\d{2,4}[\s\-]?\d{6,8}\b|"
+        # US/NANP: +1 NXX NXX-XXXX, (NXX) NXX-XXXX, NXX-NXX-XXXX, NXX.NXX.XXXX
+        r"\+1[\s\-]?\(?[2-9]\d{2}\)?[\s\-\.][2-9]\d{2}[\s\-\.]\d{4}|"
+        r"\(?[2-9]\d{2}\)?[\s\-\.][2-9]\d{2}[\s\-\.]\d{4})"
     ),
     # Permanent Account Number: 5 letters, 4 digits, 1 letter
     "PAN": re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b"),
@@ -44,13 +50,25 @@ PATTERNS: dict[str, re.Pattern[str]] = {
     # is a candidate finder; the PIN is validated against the India Post registry
     # via bharataddress before the span is kept. Catches multi-line addresses
     # that the GLiNER model misses (model fails on newline-spanning addresses).
+    # Negative lookahead skips labelled form-style documents (Floor No.:, Building
+    # No.:, Locality:, City:, State:, PIN Code:, Road/Street:, District:, Name Of)
+    # so each address line falls through to per-line GLiNER redaction, preserving
+    # the structural labels instead of collapsing the whole block into [ADDRESS].
     "ADDRESS": re.compile(
+        r"(?!(?:[^\n]*\n){0,8}[^\n]*(?:Floor\s*No|Building\s*No|Name\s*Of|Locality|City/Town|State|PIN\s*Code|Road/Street|District))"
         r"(?:Flat|H\.?\s*No|House|Door|Plot|Tower|Block|Sector|Survey|No\.?)\s*"
         r"(?:No\.?\s*)?\d+[A-Za-z]?\s*,?\s*\n?"
         r"[A-Za-z0-9\s,.\-/]{4,120}?\n"
         r"[A-Za-z0-9\s,.\-/]{4,80}?\s+"
         r"\b[1-8]\d{5}\b"
         r"(?:\s*,?\s*[A-Za-z]{3,40})?"
+    ),
+    # US Social Security Number: XXX-XX-XXXX with SSA validation rules.
+    # Rejects area 000, 666, 9xx (ITIN, not SSN) and group/serial 00/0000.
+    # Only the canonical dashed form is matched; the unseparated 9-digit form
+    # is intentionally skipped (too high false-positive risk on invoice/order IDs).
+    "SSN": re.compile(
+        r"\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"
     ),
 }
 
