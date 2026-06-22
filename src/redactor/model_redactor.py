@@ -61,6 +61,7 @@ LABELS = [
     "bank_account",            # canonical (was "bank account number")
     "drivers_license_number",  # canonical; US-relevant
     "routing_number",          # canonical; US bank routing
+    "postal_code",             # canonical; HIPAA Safe Harbor identifier (PIN/ZIP)
 ]
 # 0.75 chosen empirically: at 0.70 the gliner2-PII checkpoint over-masks common
 # noun phrases (e.g. "brown fox", "lazy dog" -> PERSON). 0.75 eliminates those

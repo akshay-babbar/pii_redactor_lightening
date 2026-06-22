@@ -70,6 +70,15 @@ PATTERNS: dict[str, re.Pattern[str]] = {
     "SSN": re.compile(
         r"\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"
     ),
+    # Postal codes: Indian PIN (6 digits, first 1-8) OR US ZIP (5 digits).
+    # PII under HIPAA Safe Harbor 45 CFR 164.514(b)(2)(i) which explicitly
+    # enumerates "ZIP code" as an identifier; PIN is India's equivalent.
+    # 6-digit Indian PINs are validated against the India Post registry in
+    # redact() (fail-closed: invalid PINs dropped, never over-masked).
+    # 5-digit US ZIPs are pattern-only (no equivalent cheap registry for US).
+    "POSTAL_CODE": re.compile(
+        r"\b[1-8]\d{5}\b|\b\d{5}\b"
+    ),
 }
 
 # 6-digit PIN candidate, used to extract the PIN for validation from any ADDRESS match.
@@ -106,6 +115,11 @@ def redact(text: str) -> RegexResult:
             if label == "ADDRESS":
                 pin_match = _PIN_RE.search(m.group())
                 if not pin_match or not _pin_is_valid(pin_match.group()):
+                    continue
+            elif label == "POSTAL_CODE" and len(m.group()) == 6:
+                # 6-digit Indian PIN: validate against India Post registry.
+                # 5-digit US ZIP: no equivalent registry; pattern match suffices.
+                if not _pin_is_valid(m.group()):
                     continue
             spans.append((m.start(), m.end(), label))
 

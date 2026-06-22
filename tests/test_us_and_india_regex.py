@@ -86,5 +86,45 @@ class CombinedPiiTests(unittest.TestCase):
         self.assertIn("2024-01-15", r.text)
 
 
+class PostalCodeRegexTests(unittest.TestCase):
+    def test_indian_pin_standalone(self) -> None:
+        r = regex_redactor.redact("PIN 560068")
+        self.assertEqual(r.counts, {"POSTAL_CODE": 1})
+
+    def test_indian_pin_in_labelled_certificate(self) -> None:
+        # The certificate form preserves the "PIN Code:" label and masks the value.
+        text = "PIN Code: 560068"
+        r = regex_redactor.redact(text)
+        self.assertEqual(r.counts, {"POSTAL_CODE": 1})
+        self.assertIn("PIN Code:", r.text)
+        self.assertIn("[POSTAL_CODE]", r.text)
+        self.assertNotIn("560068", r.text)
+
+    def test_indian_pin_inside_free_form_address_is_absorbed(self) -> None:
+        # The free-form multi-line ADDRESS regex wins by longest-match; the PIN
+        # at its anchor is part of the [ADDRESS] span, so POSTAL_CODE does not
+        # also fire. No double-counting.
+        text = "Flat 3B, Rosewood Apartments,\n4th Cross, Indiranagar,\nBengaluru 560068"
+        r = regex_redactor.redact(text)
+        self.assertEqual(r.counts, {"ADDRESS": 1})
+        self.assertNotIn("POSTAL_CODE", r.counts)
+
+    def test_invalid_indian_pin_not_matched(self) -> None:
+        # 999999 is not in the India Post registry (first digit 9 is reserved/
+        # unallocated). Fail-closed: dropped, never over-masked.
+        r = regex_redactor.redact("Bad PIN 999999")
+        self.assertNotIn("POSTAL_CODE", r.counts)
+
+    def test_us_zip_standalone(self) -> None:
+        r = regex_redactor.redact("ZIP 62704")
+        self.assertEqual(r.counts, {"POSTAL_CODE": 1})
+
+    def test_us_zip_in_address_context(self) -> None:
+        # 5-digit ZIP in a US address line.
+        r = regex_redactor.redact("Springfield IL 62704")
+        self.assertEqual(r.counts, {"POSTAL_CODE": 1})
+        self.assertNotIn("62704", r.text)
+
+
 if __name__ == "__main__":
     unittest.main()
