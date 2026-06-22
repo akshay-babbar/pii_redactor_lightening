@@ -27,9 +27,11 @@ That's it. One command does everything:
 3. Builds the signed `dist/Redact PII.shortcut` for your macOS version
 4. Opens it for import and opens Login Items settings
 
-Two clicks you must do yourself (macOS security gates — not scriptable):
-- Click **Add** in the Shortcuts import dialog
-- Add **Shortcuts.app** to the Login Items list that opens
+Clicks you must do yourself (macOS security gates — not scriptable):
+- Click **Add** in the Shortcuts import dialog — mandatory, imports the signed shortcut.
+- Add **Shortcuts.app** to the Login Items list that opens — recommended, not
+  mandatory. Without this your hotkey works fine until the next reboot; after a
+  reboot it stays dead until you manually launch Shortcuts.app once.
 
 Then assign a hotkey in Shortcuts.app: open **Redact PII** → info (i) icon →
 **Add Keyboard Shortcut** → press a combo (e.g. `⌘⇧R`).
@@ -37,9 +39,10 @@ Then assign a hotkey in Shortcuts.app: open **Redact PII** → info (i) icon →
 After that: Cmd+A, Cmd+C, press hotkey, paste. Done.
 
 You'll see a **"Redacting PII..."** notification the instant the hotkey fires
-(non-blocking), then a **"Redaction complete. Redacted text is on clipboard."**
-notification when it's done. The notifications are status-only — no clipboard
-text ever appears in them.
+(non-blocking), then a **"Redacted: Redacted N span(s): LABEL=COUNT, ..."**
+notification when it's done. The completion body is the CLI summary line, so
+you can verify redaction worked. The original clipboard text never appears
+in any notification.
 
 <details>
 <summary>Manual steps (for power users or if make install fails)</summary>
@@ -53,8 +56,9 @@ open "dist/Redact PII.shortcut"
 Installs to `~/.local/share/pii-redactor/` and writes a launcher at `~/.local/bin/pii-redact-clipboard`.
 
 Then in Shortcuts.app: double-click **Redact PII** → info (i) icon →
-**Add Keyboard Shortcut**. Add Shortcuts.app to **System Settings → General →
-Login Items**.
+**Add Keyboard Shortcut**. Adding Shortcuts.app to **System Settings → General
+→ Login Items** is recommended (not mandatory) — without it the hotkey dies
+after each reboot until Shortcuts.app is launched once.
 
 If the shortcut shows **Unknown Action**, delete it in Shortcuts.app first and re-import.
 
