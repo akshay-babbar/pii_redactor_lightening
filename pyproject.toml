@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Minimal local clipboard PII redaction tool for macOS (regex + GLiNER)."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
     "loguru>=0.7.2",
     "gliner2>=1.2.4",

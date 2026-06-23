@@ -74,4 +74,6 @@ Reads the clipboard, redacts in place, prints a summary.
 
 ## License
 
-Apache-2.0
+Apache-2.0. See [LICENSE](LICENSE). This software is provided "AS IS", without
+warranty of any kind, express or implied. The authors offer it as a personal
+project to the community and assume no liability for any use or misuse.
