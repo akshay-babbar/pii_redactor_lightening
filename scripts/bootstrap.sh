@@ -74,7 +74,8 @@ exec "\$PII_REDACTOR_HOME/.venv/bin/redact-clipboard" run
 EOF
 chmod +x "$LAUNCHER"
 
-cat <<EOF
+if [ "${FROM_MAKE_INSTALL:-0}" != "1" ]; then
+  cat <<EOF
 
 ==> Setup complete.
 
@@ -82,13 +83,15 @@ Next steps:
   1. Build and import the Apple Shortcut (see README.md):
          uv run python scripts/build_shortcut.py
          open "dist/Redact PII.shortcut"
-
   2. In Shortcuts.app, assign a global keyboard shortcut to it
      (info (i) button -> Add Keyboard Shortcut).
-
-  3. Add Shortcuts.app to System Settings -> General -> Login Items
-     so the hotkey works without manually launching the app.
-
+  3. (Recommended, not mandatory) Add Shortcuts.app to System Settings ->
+     General -> Login Items so the hotkey survives reboots. Without this,
+     the hotkey is dead after each reboot until you launch Shortcuts.app once.
   4. Direct CLI fallback (works from anywhere):
          $LAUNCHER
 EOF
+else
+  echo ""
+  echo "==> Bootstrap complete. The Makefile will build + open the shortcut next."
+fi

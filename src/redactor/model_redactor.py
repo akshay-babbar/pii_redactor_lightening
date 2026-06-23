@@ -36,24 +36,32 @@ from .chunking import (
 )
 
 DEFAULT_MODEL_ID = "fastino/gliner2-privacy-filter-PII-multi"
-# Labels chosen from the model's 42-label trained taxonomy. Email, phone, IP,
-# secret, password, api_key are intentionally omitted because the regex layer
-# already handles those deterministically. 'age' is zero-shot on this checkpoint
-# (not in the 42 trained labels) but kept for continuity with prior behaviour.
+# Canonical labels from the model's 42-label trained taxonomy
+# (https://huggingface.co/fastino/gliner2-privacy-filter-PII-multi). The model is
+# label-conditioned, so passing the exact training-time label strings maximises
+# recall. Email, phone, IP, secret, password, api_key are intentionally omitted
+# because the regex layer already handles those deterministically. 'age' is
+# zero-shot on this checkpoint (not in the 42 trained labels) but kept for
+# continuity with prior behaviour. 'organization' and 'location' are also not in
+# the taxonomy but work zero-shot via DeBERTa-v3 for the India certificate use
+# case; flagged as lower-confidence than the canonical labels below.
 LABELS = [
     "person",
-    "organization",
-    "city",                    # net-new vs old model — fixes Bengaluru miss
-    "location",                # broader than city (neighborhoods, regions)
+    "organization",            # zero-shot; kept for India use case
+    "city",                    # canonical; fixes Bengaluru miss
+    "location",                # zero-shot; broader than city (neighborhoods, regions)
     "address",                 # single-line; multi-line owned by regex layer
-    "age",
-    "date of birth",
-    "passport number",         # net-new
-    "credit card number",      # net-new (catches segmented cards regex misses)
-    "iban",                    # net-new
-    "username",                # net-new
-    "social security number",  # net-new
-    "bank account number",     # net-new
+    "age",                     # zero-shot; kept for continuity
+    "date_of_birth",           # canonical (was "date of birth")
+    "passport_number",         # canonical (was "passport number")
+    "card_number",             # canonical (was "credit card number")
+    "iban",                    # canonical
+    "username",                # canonical
+    "government_id",           # canonical (was "social security number") — covers SSN/ITIN/national IDs
+    "bank_account",            # canonical (was "bank account number")
+    "drivers_license_number",  # canonical; US-relevant
+    "routing_number",          # canonical; US bank routing
+    "postal_code",             # canonical; HIPAA Safe Harbor identifier (PIN/ZIP)
 ]
 # 0.75 chosen empirically: at 0.70 the gliner2-PII checkpoint over-masks common
 # noun phrases (e.g. "brown fox", "lazy dog" -> PERSON). 0.75 eliminates those
