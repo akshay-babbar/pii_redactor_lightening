@@ -36,9 +36,18 @@ Everything stays on your Mac.
 make install
 ```
 
-Click **Add** when the shortcut import dialog opens, then assign a keyboard
-shortcut in Shortcuts.app (open **Redact PII** → info icon → **Add Keyboard
-Shortcut**, e.g. `⌘⇧R`).
+Click **Add** in the Shortcuts import dialog when it opens — this step is
+mandatory. Then assign a keyboard shortcut in Shortcuts.app (open **Redact
+PII** → info icon → **Add Keyboard Shortcut**, e.g. `⌘⇧R`).
+
+**Reboot resilience (recommended):** Add Shortcuts.app to **System Settings →
+General → Login Items**. Without this, the hotkey stops working after each
+reboot until you launch Shortcuts.app once manually. To open Login Items
+directly:
+
+```bash
+open "x-apple.systempreferences:com.apple.LoginItems-Settings.extension"
+```
 
 ## Use
 
