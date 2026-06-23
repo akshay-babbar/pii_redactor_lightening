@@ -55,7 +55,7 @@ PATTERNS: dict[str, re.Pattern[str]] = {
     # so each address line falls through to per-line GLiNER redaction, preserving
     # the structural labels instead of collapsing the whole block into [ADDRESS].
     "ADDRESS": re.compile(
-        r"(?!(?:[^\n]*\n){0,8}[^\n]*(?:Floor\s*No|Building\s*No|Name\s*Of|Locality|City/Town|State|PIN\s*Code|Road/Street|District))"
+        r"(?!(?:[^\n]*\n){0,8}[^\n]*(?:Floor\s*No|Building\s*No|Name\s*Of|Locality|City/Town|State|PIN\s*Code|Road/Street|District)[^\n]*:)"
         r"(?:Flat|H\.?\s*No|House|Door|Plot|Tower|Block|Sector|Survey|No\.?)\s*"
         r"(?:No\.?\s*)?\d+[A-Za-z]?\s*,?\s*\n?"
         r"[A-Za-z0-9\s,.\-/]{4,120}?\n"

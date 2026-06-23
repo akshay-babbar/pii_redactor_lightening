@@ -55,6 +55,17 @@ class AddressNarrowingTests(unittest.TestCase):
         self.assertEqual(r.counts, {"ADDRESS": 1})
         self.assertIn("[ADDRESS]", r.text)
 
+    def test_free_form_address_with_label_substring_still_matches(self) -> None:
+        # Regression for bugbot finding: a free-form address whose street name
+        # contains a label substring (e.g. "State Bank Road") must still match
+        # ADDRESS, not be skipped by the negative lookahead. The lookahead now
+        # requires a same-line colon after the keyword, which distinguishes a
+        # form label ("State: Karnataka") from a street substring ("State Bank Road").
+        text = "Flat 3B, State Bank Road,\n4th Cross, Indiranagar,\nBengaluru 560068"
+        r = regex_redactor.redact(text)
+        self.assertEqual(r.counts, {"ADDRESS": 1})
+        self.assertIn("[ADDRESS]", r.text)
+
 
 if __name__ == "__main__":
     unittest.main()
