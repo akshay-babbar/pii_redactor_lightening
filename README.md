@@ -4,6 +4,23 @@ Local macOS clipboard PII redactor. Copy text, trigger redaction, paste the
 cleaned result. Everything runs on your Mac — no cloud, no UI, no data leaving
 your machine.
 
+![Redact PII demo](assets/pii-redactor-core.gif)
+
+## Why
+
+Got an insurance policy, loan agreement, or medical summary you want to run
+through ChatGPT, Claude, or Gemini — but not keen on uploading your name, PAN,
+phone, and account numbers along with it? Redact first, paste into any AI chat,
+and ask freely. Your doubts get resolved; your PII stays on your Mac.
+
+- **Private by design** — clipboard never leaves the machine; no network calls.
+- **Local on-device model** — a small model runs locally to catch names and
+  places that regex misses. ~1 GB download, one time.
+- **Blazing fast in practice** — one hotkey, ~8–12 s, done. No app to launch,
+  no tab to switch to.
+- **Apple-native** — built on macOS Shortcuts. Nothing new to install or learn;
+  it behaves like any system shortcut.
+
 ## What it redacts
 
 - Emails, phone numbers, PAN, Aadhaar, UPI IDs
